@@ -18,7 +18,7 @@ exports.query = function (friends) {
     var selectedFriends = [];
     clone(friends, selectedFriends);
 
-    selectedFriendsProperties = Object.keys(friends[0]);
+    selectedFriendsProperties = getAllProperties(friends);
 
     var functions = [].slice.call(arguments, 1);
     functions.forEach(function (func) {
@@ -27,6 +27,21 @@ exports.query = function (friends) {
 
     return leaveOnlySelectedProperties(selectedFriends);
 };
+
+/**
+ * Получение всех свойств
+ * @param {Array} friends
+ * @returns {Array} все возможные свойства людей
+ */
+function getAllProperties(friends) {
+    return friends.reduce(function (allProperties, friend) {
+        allProperties = allProperties.concat(Object.keys(friend).filter(function (property) {
+            return allProperties.indexOf(property) === -1;
+        }));
+
+        return allProperties;
+    }, []);
+}
 
 /**
  * deep copy from collection1 to collection2
@@ -51,7 +66,9 @@ function leaveOnlySelectedProperties(friends) {
     return friends.reduce(function (resultFriends, friend) {
         var nextFriend = {};
         selectedFriendsProperties.forEach(function (property) {
-            nextFriend[property] = friend[property];
+            if (friend[property]) {
+                nextFriend[property] = friend[property];
+            }
         });
         resultFriends.push(nextFriend);
 
