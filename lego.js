@@ -16,6 +16,8 @@ var OPERATORS_PRIORITIES = {
     and: 0
 };
 
+var limit;
+
 /**
  * Запрос к коллекции
  * @param {Array} friends
@@ -25,6 +27,8 @@ var OPERATORS_PRIORITIES = {
 exports.query = function (friends) {
     var selectedFriends = [];
     clone(friends, selectedFriends);
+
+    limit = undefined;
 
     var executionQueue = createExecutionQueue(
         [].slice.call(arguments, 1)
@@ -36,7 +40,7 @@ exports.query = function (friends) {
         });
     });
 
-    return selectedFriends;
+    return selectedFriends.slice(0, limit);
 };
 
 /**
@@ -177,7 +181,9 @@ exports.limit = function (count) {
     return {
         priority: OPERATORS_PRIORITIES.limit,
         operator: function (friends) {
-            return friends.slice(0, count);
+            limit = count;
+
+            return friends;
         }
     };
 };
