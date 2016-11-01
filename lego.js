@@ -20,6 +20,7 @@ exports.query = function (friends) {
     clone(friends, selectedFriends);
 
     selectedFriendsProperties = getAllProperties(friends);
+    limit = undefined;
 
     var functions = [].slice.call(arguments, 1);
     functions.forEach(function (func) {
@@ -172,7 +173,9 @@ if (exports.isStar) {
             return filters.reduce(function (resultFriends, filter) {
                 return resultFriends.concat(
                     filter(friends).filter(function (friend) {
-                        return resultFriends.indexOf(friend) === -1;
+                        var temp = resultFriends.indexOf(friend) === -1;
+
+                        return temp;
                     })
                 );
             }, []);
