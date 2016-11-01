@@ -6,45 +6,38 @@
  */
 exports.isStar = true;
 
-var selectedFriendsProperties;
-var limit;
+var OPERATORS_PRIORITIES = {
+    select: 2,
+    format: 3,
+    filterIn: 0,
+    sortBy: 1,
+    limit: 4,
+    or: 0,
+    and: 0
+};
 
 /**
  * Запрос к коллекции
  * @param {Array} friends
- * @params {...Function} – Функции для запроса
+ * @params {...Object.<priority, operator>}
  * @returns {Array}
  */
 exports.query = function (friends) {
     var selectedFriends = [];
     clone(friends, selectedFriends);
 
-    selectedFriendsProperties = getAllProperties(friends);
-    limit = undefined;
+    var executionQueue = createExecutionQueue(
+        [].slice.call(arguments, 1)
+    );
 
-    var functions = [].slice.call(arguments, 1);
-    functions.forEach(function (func) {
-        selectedFriends = func(selectedFriends);
+    executionQueue.forEach(function (priorityFunctions) {
+        priorityFunctions.forEach(function (operator) {
+            selectedFriends = operator(selectedFriends);
+        });
     });
 
-    return leaveOnlySelectedProperties(selectedFriends)
-        .slice(0, limit ? limit : selectedFriends.length);
+    return selectedFriends;
 };
-
-/**
- * Получение всех свойств
- * @param {Array} friends
- * @returns {Array} все возможные свойства людей
- */
-function getAllProperties(friends) {
-    return friends.reduce(function (allProperties, friend) {
-        allProperties = allProperties.concat(Object.keys(friend).filter(function (property) {
-            return allProperties.indexOf(property) === -1;
-        }));
-
-        return allProperties;
-    }, []);
-}
 
 /**
  * deep copy from collection1 to collection2
@@ -61,38 +54,59 @@ function clone(collection1, collection2) {
 }
 
 /**
- * Выбрать только нужные поля
- * @param {Array} friends - array of objects
- * @returns {Array}
+ * Создать очередь выполнения из функций с приоритетами
+ * @param {{priority: number, operator: function}[]} functions - функции и их приоритеты
+ * @returns {Array.<Array.<Function>>} очередь выполнения функций
  */
-function leaveOnlySelectedProperties(friends) {
-    return friends.reduce(function (resultFriends, friend) {
-        var nextFriend = {};
-        selectedFriendsProperties.forEach(function (property) {
-            if (friend[property]) {
-                nextFriend[property] = friend[property];
-            }
-        });
-        resultFriends.push(nextFriend);
+function createExecutionQueue(functions) {
+    var executionQueue = [];
+    for (var i = 0; i < getAllUniqueValues(OPERATORS_PRIORITIES).length; i++) {
+        executionQueue.push([]);
+    }
 
-        return resultFriends;
+    functions.forEach(function (func) {
+        executionQueue[func.priority].push(func.operator);
+    });
+
+    return executionQueue;
+}
+
+/**
+ * Берёт все уникальные значения из object
+ * @param {Object} object
+ * @returns {Array} - уникальные значения
+ */
+function getAllUniqueValues(object) {
+    return Object.keys(object).reduce(function (uniqueValues, key, index) {
+        if (uniqueValues.indexOf(object[key]) !== index) {
+            uniqueValues.push(object[key]);
+        }
+
+        return uniqueValues;
     }, []);
 }
 
 /**
  * Выбор полей
  * @params {...String}
- * @returns {Function}
+ * @returns {{priority: number, operator: function}}
  */
 exports.select = function () {
     var selectors = [].slice.call(arguments);
 
-    return function (friends) {
-        selectedFriendsProperties = selectedFriendsProperties.filter(function (selector) {
-            return selectors.indexOf(selector) !== -1;
-        });
+    return {
+        priority: OPERATORS_PRIORITIES.select,
+        operator: function (friends) {
+            friends.forEach(function (friend) {
+                Object.keys(friend).forEach(function (friendProperty) {
+                    if (selectors.indexOf(friendProperty) === -1) {
+                        delete friend[friendProperty];
+                    }
+                });
+            });
 
-        return friends;
+            return friends;
+        }
     };
 };
 
@@ -100,15 +114,18 @@ exports.select = function () {
  * Фильтрация поля по массиву значений
  * @param {String} property – Свойство для фильтрации
  * @param {Array} values – Доступные значения
- * @returns {Function}
+ * @returns {{priority: number, operator: function}}
  */
 exports.filterIn = function (property, values) {
-    return function (friends) {
-        return friends.filter(function (friend) {
-            return values.some(function (propertyValue) {
-                return friend[property] === propertyValue;
+    return {
+        priority: OPERATORS_PRIORITIES.filterIn,
+        operator: function (friends) {
+            return friends.filter(function (friend) {
+                return values.some(function (propertyValue) {
+                    return friend[property] === propertyValue;
+                });
             });
-        });
+        }
     };
 };
 
@@ -116,14 +133,17 @@ exports.filterIn = function (property, values) {
  * Сортировка коллекции по полю
  * @param {String} property – Свойство для фильтрации
  * @param {String} order – Порядок сортировки (asc - по возрастанию; desc – по убыванию)
- * @returns {Function}
+ * @returns {{priority: number, operator: function}}
  */
 exports.sortBy = function (property, order) {
-    return function (friends) {
-        return friends.sort(function (friend1, friend2) {
-            return friend1[property] > friend2[property] && order === 'asc' ||
-                friend1[property] < friend2[property] && order === 'desc';
-        });
+    return {
+        priority: OPERATORS_PRIORITIES.sortBy,
+        operator: function (friends) {
+            return friends.sort(function (friend1, friend2) {
+                return friend1[property] > friend2[property] && order === 'asc' ||
+                    friend1[property] < friend2[property] && order === 'desc';
+            });
+        }
     };
 };
 
@@ -131,30 +151,34 @@ exports.sortBy = function (property, order) {
  * Форматирование поля
  * @param {String} property – Свойство для фильтрации
  * @param {Function} formatter – Функция для форматирования
- * @returns {Function}
+ * @returns {{priority: number, operator: function}}
  */
 exports.format = function (property, formatter) {
-    return function (friends) {
-        friends.forEach(function (friend) {
-            if (friend[property]) {
-                friend[property] = formatter(friend[property]);
-            }
-        });
+    return {
+        priority: OPERATORS_PRIORITIES.format,
+        operator: function (friends) {
+            friends.forEach(function (friend) {
+                if (friend[property]) {
+                    friend[property] = formatter(friend[property]);
+                }
+            });
 
-        return friends;
+            return friends;
+        }
     };
 };
 
 /**
  * Ограничение количества элементов в коллекции
  * @param {Number} count – Максимальное количество элементов
- * @returns {Function}
+ * @returns {{priority: number, operator: function}}
  */
 exports.limit = function (count) {
-    return function (friends) {
-        limit = count;
-
-        return friends;
+    return {
+        priority: OPERATORS_PRIORITIES.limit,
+        operator: function (friends) {
+            return friends.slice(0, count);
+        }
     };
 };
 
@@ -164,21 +188,26 @@ if (exports.isStar) {
      * Фильтрация, объединяющая фильтрующие функции
      * @star
      * @params {...Function} – Фильтрующие функции
-     * @returns {Function}
+     * @returns {{priority: number, operator: function}}
      */
     exports.or = function () {
-        var filters = [].slice.call(arguments);
+        var filters = [].slice.call(arguments).reduce(function (resultFilters, argument) {
+            resultFilters.push(argument.operator);
 
-        return function (friends) {
-            return filters.reduce(function (resultFriends, filter) {
-                return resultFriends.concat(
-                    filter(friends).filter(function (friend) {
-                        var temp = resultFriends.indexOf(friend) === -1;
+            return resultFilters;
+        }, []);
 
-                        return temp;
-                    })
-                );
-            }, []);
+        return {
+            priority: OPERATORS_PRIORITIES.or,
+            operator: function (friends) {
+                return filters.reduce(function (resultFriends, filter) {
+                    return resultFriends.concat(
+                        filter(friends).filter(function (friend) {
+                            return resultFriends.indexOf(friend) === -1;
+                        })
+                    );
+                }, []);
+            }
         };
     };
 
@@ -186,17 +215,24 @@ if (exports.isStar) {
      * Фильтрация, пересекающая фильтрующие функции
      * @star
      * @params {...Function} – Фильтрующие функции
-     * @returns {Function}
+     * @returns {{priority: number, operator: function}}
      */
     exports.and = function () {
-        var filters = [].slice.call(arguments);
+        var filters = [].slice.call(arguments).reduce(function (resultFilters, argument) {
+            resultFilters.push(argument.operator);
 
-        return function (friends) {
-            filters.forEach(function (filter) {
-                friends = filter(friends);
-            });
+            return resultFilters;
+        }, []);
 
-            return friends;
+        return {
+            priority: OPERATORS_PRIORITIES.and,
+            operator: function (friends) {
+                filters.forEach(function (filter) {
+                    friends = filter(friends);
+                });
+
+                return friends;
+            }
         };
     };
 }
