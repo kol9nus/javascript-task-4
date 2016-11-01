@@ -7,6 +7,7 @@
 exports.isStar = true;
 
 var selectedFriendsProperties;
+var limit;
 
 /**
  * Запрос к коллекции
@@ -25,7 +26,8 @@ exports.query = function (friends) {
         selectedFriends = func(selectedFriends);
     });
 
-    return leaveOnlySelectedProperties(selectedFriends);
+    return leaveOnlySelectedProperties(selectedFriends)
+        .slice(0, limit ? limit : selectedFriends.length);
 };
 
 /**
@@ -119,7 +121,7 @@ exports.sortBy = function (property, order) {
     return function (friends) {
         return friends.sort(function (friend1, friend2) {
             return friend1[property] > friend2[property] && order === 'asc' ||
-                friend1[property] <= friend2[property] && order === 'desc';
+                friend1[property] < friend2[property] && order === 'desc';
         });
     };
 };
@@ -133,7 +135,9 @@ exports.sortBy = function (property, order) {
 exports.format = function (property, formatter) {
     return function (friends) {
         friends.forEach(function (friend) {
-            friend[property] = formatter(friend[property]);
+            if (friend[property]) {
+                friend[property] = formatter(friend[property]);
+            }
         });
 
         return friends;
@@ -147,7 +151,9 @@ exports.format = function (property, formatter) {
  */
 exports.limit = function (count) {
     return function (friends) {
-        return friends.slice(0, count);
+        limit = count;
+
+        return friends;
     };
 };
 
