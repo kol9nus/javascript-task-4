@@ -11,7 +11,7 @@ var OPERATORS_PRIORITIES = {
     format: 3,
     filterIn: 0,
     sortBy: 1,
-    limit: 4,
+    limit: 3,
     or: 0,
     and: 0
 };
@@ -21,7 +21,7 @@ var limit;
 /**
  * Запрос к коллекции
  * @param {Array} friends
- * @params {...Object.<priority, operator>}
+ * @params {...{priority: number, operator: function}}
  * @returns {Array}
  */
 exports.query = function (friends) {
@@ -162,7 +162,7 @@ exports.format = function (property, formatter) {
         priority: OPERATORS_PRIORITIES.format,
         operator: function (friends) {
             friends.forEach(function (friend) {
-                if (friend[property]) {
+                if (friend[property] !== undefined) {
                     friend[property] = formatter(friend[property]);
                 }
             });
