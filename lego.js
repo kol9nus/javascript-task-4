@@ -230,13 +230,13 @@ if (exports.isStar) {
         return {
             priority: OPERATORS_PRIORITIES.or,
             operator: function (friendsIndexes) {
-                return filters.reduce(function (resultFriendsIndexes, filter) {
-                    return resultFriendsIndexes.concat(
-                        filter(friendsIndexes.slice()).filter(function (friendIndex) {
-                            return resultFriendsIndexes.indexOf(friendIndex) === -1;
-                        })
-                    );
+                var resultsOfFilters = filters.reduce(function (results, filter) {
+                    return results.concat(filter(friendsIndexes.slice()));
                 }, []);
+
+                return friendsIndexes.filter(function (friendIndex) {
+                    return resultsOfFilters.indexOf(friendIndex) !== -1;
+                });
             }
         };
     };
