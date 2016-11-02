@@ -16,7 +16,7 @@ var OPERATORS_PRIORITIES = {
     and: 0
 };
 
-var limit;
+var allKeys = [];
 
 /**
  * Запрос к коллекции
@@ -27,20 +27,19 @@ var limit;
 exports.query = function (friends) {
     var selectedFriends = [];
     clone(friends, selectedFriends);
-
-    limit = undefined;
+    allKeys = getAllUniqueKeys(friends);
 
     var executionQueue = createExecutionQueue(
         [].slice.call(arguments, 1)
     );
 
-    executionQueue.forEach(function (priorityFunctions) {
-        priorityFunctions.forEach(function (operator) {
+    executionQueue.forEach(function (priorityLevelOperators) {
+        priorityLevelOperators.forEach(function (operator) {
             selectedFriends = operator(selectedFriends);
         });
     });
 
-    return selectedFriends.slice(0, limit);
+    return selectedFriends;
 };
 
 /**
@@ -55,6 +54,23 @@ function clone(collection1, collection2) {
             collection2[collection2.length - 1][key] = element[key];
         });
     });
+}
+
+/**
+ * Берёт все уникальные ключи из коллекции объектов
+ * @param {Object[]} collection
+ * @returns {Array} - уникальные значения
+ */
+function getAllUniqueKeys(collection) {
+    return collection.reduce(function (keys, element) {
+        Object.keys(element).forEach(function (key) {
+            if (keys.indexOf(key) === -1) {
+                keys.push(key);
+            }
+        });
+
+        return keys;
+    }, []);
 }
 
 /**
@@ -101,18 +117,37 @@ exports.select = function () {
     return {
         priority: OPERATORS_PRIORITIES.select,
         operator: function (friends) {
-            friends.forEach(function (friend) {
-                Object.keys(friend).forEach(function (friendProperty) {
-                    if (selectors.indexOf(friendProperty) === -1) {
-                        delete friend[friendProperty];
-                    }
+            var correctSelectors = getCorrectSelectors(selectors);
+
+            if (correctSelectors.length !== 0) {
+                friends.forEach(function (friend) {
+                    Object.keys(friend).forEach(function (friendProperty) {
+                        if (correctSelectors.indexOf(friendProperty) === -1) {
+                            delete friend[friendProperty];
+                        }
+                    });
                 });
-            });
+            }
 
             return friends;
         }
     };
 };
+
+/**
+ * Получение только корректных селекторов
+ * @param {String[]} selectors
+ * @returns {String[]}
+ */
+function getCorrectSelectors(selectors) {
+    return selectors.reduce(function (correctSelectors, selector) {
+        if (allKeys.indexOf(selector) !== -1) {
+            correctSelectors.push(selector);
+        }
+
+        return correctSelectors;
+    }, []);
+}
 
 /**
  * Фильтрация поля по массиву значений
@@ -181,9 +216,7 @@ exports.limit = function (count) {
     return {
         priority: OPERATORS_PRIORITIES.limit,
         operator: function (friends) {
-            limit = count;
-
-            return friends;
+            return friends.slice(0, count);
         }
     };
 };
