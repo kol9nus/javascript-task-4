@@ -7,54 +7,70 @@
 exports.isStar = true;
 
 var OPERATORS_PRIORITIES = {
-    select: 2,
+    select: 1,
     format: 3,
     filterIn: 0,
-    sortBy: 1,
-    limit: 3,
+    sortBy: 0,
+    limit: 2,
     or: 0,
     and: 0
 };
 
 var limit;
+var outputtedProperties;
+var fieldsFormatters;
+var friends;
 
 /**
  * Запрос к коллекции
- * @param {Array} friends
+ * @param {Array} collection
  * @params {...{priority: number, operator: function}}
  * @returns {Array}
  */
-exports.query = function (friends) {
-    var selectedFriends = [];
-    clone(friends, selectedFriends);
+exports.query = function (collection) {
+    limit = collection.length;
+    outputtedProperties = getAllUniqueKeys(collection);
+    friends = collection;
+    fieldsFormatters = {};
 
-    limit = undefined;
+    var bestFriendsIndexes = [];
+    for (var i = 0; i < friends.length; i++) {
+        bestFriendsIndexes.push(i);
+    }
 
     var executionQueue = createExecutionQueue(
         [].slice.call(arguments, 1)
     );
 
-    executionQueue.forEach(function (priorityFunctions) {
+    // сортировки и фильтры
+    executionQueue[0].forEach(function (operator) {
+        bestFriendsIndexes = operator(bestFriendsIndexes);
+    });
+
+    executionQueue.slice(1).forEach(function (priorityFunctions) {
         priorityFunctions.forEach(function (operator) {
-            selectedFriends = operator(selectedFriends);
+            operator();
         });
     });
 
-    return selectedFriends.slice(0, limit);
+    return getBestFriends(bestFriendsIndexes);
 };
 
 /**
- * deep copy from collection1 to collection2
- * @param {Array} collection1 - array of objects
- * @param {Array} collection2 - array of objects
+ * Берёт все уникальные ключи из коллекции объектов
+ * @param {Object[]} collection
+ * @returns {Array} - уникальные значения
  */
-function clone(collection1, collection2) {
-    collection1.forEach(function (element) {
-        collection2.push({});
+function getAllUniqueKeys(collection) {
+    return collection.reduce(function (keys, element) {
         Object.keys(element).forEach(function (key) {
-            collection2[collection2.length - 1][key] = element[key];
+            if (keys.indexOf(key) === -1) {
+                keys.push(key);
+            }
         });
-    });
+
+        return keys;
+    }, []);
 }
 
 /**
@@ -91,6 +107,27 @@ function getAllUniqueValues(object) {
 }
 
 /**
+ * Сгенерировать список лучших друзей
+ * @param {Number[]} indexes
+ * @returns {Object[]}
+ */
+function getBestFriends(indexes) {
+    return indexes.slice(0, limit).reduce(function (bestFriends, bestFriendIndex) {
+        bestFriends.push(
+            outputtedProperties.reduce(function (bestFriend, field) {
+                bestFriend[field] = fieldsFormatters[field]
+                    ? fieldsFormatters[field](friends[bestFriendIndex][field])
+                    : friends[bestFriendIndex][field];
+
+                return bestFriend;
+            }, {})
+        );
+
+        return bestFriends;
+    }, []);
+}
+
+/**
  * Выбор полей
  * @params {...String}
  * @returns {{priority: number, operator: function}}
@@ -100,16 +137,10 @@ exports.select = function () {
 
     return {
         priority: OPERATORS_PRIORITIES.select,
-        operator: function (friends) {
-            friends.forEach(function (friend) {
-                Object.keys(friend).forEach(function (friendProperty) {
-                    if (selectors.indexOf(friendProperty) === -1) {
-                        delete friend[friendProperty];
-                    }
-                });
+        operator: function () {
+            outputtedProperties = outputtedProperties.filter(function (field) {
+                return selectors.indexOf(field) !== -1;
             });
-
-            return friends;
         }
     };
 };
@@ -123,10 +154,10 @@ exports.select = function () {
 exports.filterIn = function (property, values) {
     return {
         priority: OPERATORS_PRIORITIES.filterIn,
-        operator: function (friends) {
-            return friends.filter(function (friend) {
+        operator: function (friendsIndexes) {
+            return friendsIndexes.filter(function (index) {
                 return values.some(function (propertyValue) {
-                    return friend[property] === propertyValue;
+                    return friends[index][property] === propertyValue;
                 });
             });
         }
@@ -142,10 +173,11 @@ exports.filterIn = function (property, values) {
 exports.sortBy = function (property, order) {
     return {
         priority: OPERATORS_PRIORITIES.sortBy,
-        operator: function (friends) {
-            return friends.sort(function (friend1, friend2) {
-                return friend1[property] > friend2[property] && order === 'asc' ||
-                    friend1[property] < friend2[property] && order === 'desc';
+        operator: function (friendsIndexes) {
+            return friendsIndexes.sort(function (friendI1, friendI2) {
+                return order === 'asc'
+                    ? friends[friendI1][property] > friends[friendI2][property]
+                    : friends[friendI1][property] < friends[friendI2][property];
             });
         }
     };
@@ -160,14 +192,8 @@ exports.sortBy = function (property, order) {
 exports.format = function (property, formatter) {
     return {
         priority: OPERATORS_PRIORITIES.format,
-        operator: function (friends) {
-            friends.forEach(function (friend) {
-                if (friend[property] !== undefined) {
-                    friend[property] = formatter(friend[property]);
-                }
-            });
-
-            return friends;
+        operator: function () {
+            fieldsFormatters[property] = formatter;
         }
     };
 };
@@ -180,10 +206,8 @@ exports.format = function (property, formatter) {
 exports.limit = function (count) {
     return {
         priority: OPERATORS_PRIORITIES.limit,
-        operator: function (friends) {
+        operator: function () {
             limit = count;
-
-            return friends;
         }
     };
 };
@@ -205,11 +229,11 @@ if (exports.isStar) {
 
         return {
             priority: OPERATORS_PRIORITIES.or,
-            operator: function (friends) {
-                return filters.reduce(function (resultFriends, filter) {
-                    return resultFriends.concat(
-                        filter(friends).filter(function (friend) {
-                            return resultFriends.indexOf(friend) === -1;
+            operator: function (friendsIndexes) {
+                return filters.reduce(function (resultFriendsIndexes, filter) {
+                    return resultFriendsIndexes.concat(
+                        filter(friendsIndexes).filter(function (friendIndex) {
+                            return resultFriendsIndexes.indexOf(friendIndex) === -1;
                         })
                     );
                 }, []);
@@ -232,12 +256,12 @@ if (exports.isStar) {
 
         return {
             priority: OPERATORS_PRIORITIES.and,
-            operator: function (friends) {
+            operator: function (friendsIndexes) {
                 filters.forEach(function (filter) {
-                    friends = filter(friends);
+                    friendsIndexes = filter(friendsIndexes);
                 });
 
-                return friends;
+                return friendsIndexes;
             }
         };
     };
