@@ -44,7 +44,7 @@ exports.query = function (collection) {
 
     // сортировки и фильтры
     executionQueue[0].forEach(function (operator) {
-        bestFriendsIndexes = operator(bestFriendsIndexes);
+        bestFriendsIndexes = operator(bestFriendsIndexes.slice());
     });
 
     executionQueue.slice(1).forEach(function (priorityFunctions) {
@@ -232,7 +232,7 @@ if (exports.isStar) {
             operator: function (friendsIndexes) {
                 return filters.reduce(function (resultFriendsIndexes, filter) {
                     return resultFriendsIndexes.concat(
-                        filter(friendsIndexes).filter(function (friendIndex) {
+                        filter(friendsIndexes.slice()).filter(function (friendIndex) {
                             return resultFriendsIndexes.indexOf(friendIndex) === -1;
                         })
                     );
@@ -258,7 +258,7 @@ if (exports.isStar) {
             priority: OPERATORS_PRIORITIES.and,
             operator: function (friendsIndexes) {
                 filters.forEach(function (filter) {
-                    friendsIndexes = filter(friendsIndexes);
+                    friendsIndexes = filter(friendsIndexes.slice());
                 });
 
                 return friendsIndexes;
