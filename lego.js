@@ -16,8 +16,6 @@ var OPERATORS_PRIORITIES = {
     and: 0
 };
 
-var limit;
-
 /**
  * Запрос к коллекции
  * @param {Array} friends
@@ -27,8 +25,6 @@ var limit;
 exports.query = function (friends) {
     var selectedFriends = [];
     clone(friends, selectedFriends);
-
-    limit = undefined;
 
     var executionQueue = createExecutionQueue(
         [].slice.call(arguments, 1)
@@ -40,7 +36,7 @@ exports.query = function (friends) {
         });
     });
 
-    return selectedFriends.slice(0, limit);
+    return selectedFriends;
 };
 
 /**
@@ -144,8 +140,8 @@ exports.sortBy = function (property, order) {
         priority: OPERATORS_PRIORITIES.sortBy,
         operator: function (friends) {
             return friends.sort(function (friend1, friend2) {
-                return friend1[property] > friend2[property] && order === 'asc' ||
-                    friend1[property] < friend2[property] && order === 'desc';
+                return order === 'asc' ? friend1[property] > friend2[property]
+                    : friend1[property] < friend2[property];
             });
         }
     };
@@ -181,9 +177,7 @@ exports.limit = function (count) {
     return {
         priority: OPERATORS_PRIORITIES.limit,
         operator: function (friends) {
-            limit = count;
-
-            return friends;
+            return friends.slice(0, count);
         }
     };
 };
@@ -197,22 +191,18 @@ if (exports.isStar) {
      * @returns {{priority: number, operator: function}}
      */
     exports.or = function () {
-        var filters = [].slice.call(arguments).reduce(function (resultFilters, argument) {
-            resultFilters.push(argument.operator);
-
-            return resultFilters;
-        }, []);
+        var filters = getFilters([].slice.call(arguments));
 
         return {
             priority: OPERATORS_PRIORITIES.or,
             operator: function (friends) {
-                return filters.reduce(function (resultFriends, filter) {
-                    return resultFriends.concat(
-                        filter(friends).filter(function (friend) {
-                            return resultFriends.indexOf(friend) === -1;
-                        })
-                    );
+                var filteredFriends = filters.reduce(function (filtered, filter) {
+                    return filtered.concat(filter(friends));
                 }, []);
+
+                return friends.filter(function (friend) {
+                    return filteredFriends.indexOf(friend) !== -1;
+                });
             }
         };
     };
@@ -224,21 +214,28 @@ if (exports.isStar) {
      * @returns {{priority: number, operator: function}}
      */
     exports.and = function () {
-        var filters = [].slice.call(arguments).reduce(function (resultFilters, argument) {
-            resultFilters.push(argument.operator);
-
-            return resultFilters;
-        }, []);
+        var filters = getFilters([].slice.call(arguments));
 
         return {
             priority: OPERATORS_PRIORITIES.and,
             operator: function (friends) {
-                filters.forEach(function (filter) {
-                    friends = filter(friends);
-                });
-
-                return friends;
+                return filters.reduce(function (filteredFriends, filter) {
+                    return filter(filteredFriends);
+                }, friends);
             }
         };
     };
+}
+
+/**
+ * Вычленяет функцию из массива пар приоритет/функция
+ * @param {{priority: number, operator: function}[]} functions
+ * @returns {function[]}
+ */
+function getFilters(functions) {
+    return functions.reduce(function (resultFilters, argument) {
+        resultFilters.push(argument.operator);
+
+        return resultFilters;
+    }, []);
 }
