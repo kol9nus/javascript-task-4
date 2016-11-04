@@ -15,47 +15,83 @@ var OPERATORS_PRIORITIES = {
     or: 0,
     and: 0
 };
+var SORTING_ORDER = {
+    asc: 'asc',
+    desc: 'desc'
+};
+var uniqueCollectionKeys;
 
 /**
  * Запрос к коллекции
- * @param {Array} friends
+ * @param {Array} collection
  * @params {...{priority: number, operator: function}}
  * @returns {Array}
  */
-exports.query = function (friends) {
-    var selectedFriends = [];
-    clone(friends, selectedFriends);
+exports.query = function (collection) {
+    var queryResult = [];
+    uniqueCollectionKeys = getAllUniqueKeys(collection);
+    queryResult = clone(collection);
 
-    var executionQueue = createExecutionQueue(
+    var levelsExecutionQueue = createExecutionQueue(
         [].slice.call(arguments, 1)
     );
 
-    executionQueue.forEach(function (priorityFunctions) {
-        priorityFunctions.forEach(function (operator) {
-            selectedFriends = operator(selectedFriends);
+    levelsExecutionQueue.forEach(function (priorityLevel) {
+        priorityLevel.forEach(function (operator) {
+            queryResult = operator(queryResult);
         });
     });
 
-    return selectedFriends;
+    return queryResult;
 };
 
 /**
- * deep copy from collection1 to collection2
- * @param {Array} collection1 - array of objects
- * @param {Array} collection2 - array of objects
+ * Берёт все уникальные ключи из коллекции объектов
+ * @param {Array.<Object>} collection
+ * @returns {Array} - уникальные значения
  */
-function clone(collection1, collection2) {
-    collection1.forEach(function (element) {
-        collection2.push({});
-        Object.keys(element).forEach(function (key) {
-            collection2[collection2.length - 1][key] = element[key];
+function getAllUniqueKeys(collection) {
+    return collection.reduce(function (keys, item) {
+        return keys.concat(Object.keys(item).filter(function (key) {
+            return keys.indexOf(key) === -1;
+        }));
+    }, []);
+}
+
+/**
+ * @param {Array} collection - array of objects
+ * @param {Array} [properties] - корректные поля, которые нужно копировать
+ * @returns {Array} - глубокая копия collection
+ */
+function clone(collection, properties) {
+    var getSharedProperties = properties !== undefined
+        ? getIntersectionFunction(properties)
+        : Object.keys;
+
+    return collection.reduce(function (copiedCollection, item) {
+        return copiedCollection.concat(getSharedProperties(item).reduce(function (copiedItem, key) {
+            copiedItem[key] = item[key];
+
+            return copiedItem;
+        }, {}));
+    }, []);
+}
+
+/**
+ * @param {Array} collection
+ * @returns {Function} - функция для получения полей объекта, присутствующие в collection
+ */
+function getIntersectionFunction(collection) {
+    return function (object) {
+        return Object.keys(object).filter(function (property) {
+            return collection.indexOf(property) !== -1;
         });
-    });
+    };
 }
 
 /**
  * Создать очередь выполнения из функций с приоритетами
- * @param {{priority: number, operator: function}[]} functions - функции и их приоритеты
+ * @param {Array.<{priority: number, operator: function}>} functions - функции и их приоритеты
  * @returns {Array.<Array.<Function>>} очередь выполнения функций
  */
 function createExecutionQueue(functions) {
@@ -78,11 +114,9 @@ function createExecutionQueue(functions) {
  */
 function getAllUniqueValues(object) {
     return Object.keys(object).reduce(function (uniqueValues, key, index) {
-        if (uniqueValues.indexOf(object[key]) !== index) {
-            uniqueValues.push(object[key]);
-        }
-
-        return uniqueValues;
+        return uniqueValues.concat(
+            uniqueValues.indexOf(object[key]) !== index ? object[key] : []
+        );
     }, []);
 }
 
@@ -96,19 +130,22 @@ exports.select = function () {
 
     return {
         priority: OPERATORS_PRIORITIES.select,
-        operator: function (friends) {
-            friends.forEach(function (friend) {
-                Object.keys(friend).forEach(function (friendProperty) {
-                    if (selectors.indexOf(friendProperty) === -1) {
-                        delete friend[friendProperty];
-                    }
-                });
-            });
-
-            return friends;
+        operator: function (collection) {
+            return clone(collection, getCorrectProperties(selectors));
         }
     };
 };
+
+/**
+ * Оставить только существующие в коллекции поля
+ * @param {Array} properties
+ * @returns {Array}
+ */
+function getCorrectProperties(properties) {
+    return properties.filter(function (property) {
+        return uniqueCollectionKeys.indexOf(property) !== -1;
+    });
+}
 
 /**
  * Фильтрация поля по массиву значений
@@ -119,11 +156,9 @@ exports.select = function () {
 exports.filterIn = function (property, values) {
     return {
         priority: OPERATORS_PRIORITIES.filterIn,
-        operator: function (friends) {
-            return friends.filter(function (friend) {
-                return values.some(function (propertyValue) {
-                    return friend[property] === propertyValue;
-                });
+        operator: function (collection) {
+            return collection.filter(function (item) {
+                return values.indexOf(item[property]) !== -1;
             });
         }
     };
@@ -138,10 +173,10 @@ exports.filterIn = function (property, values) {
 exports.sortBy = function (property, order) {
     return {
         priority: OPERATORS_PRIORITIES.sortBy,
-        operator: function (friends) {
-            return friends.sort(function (friend1, friend2) {
-                return order === 'asc' ? friend1[property] > friend2[property]
-                    : friend1[property] < friend2[property];
+        operator: function (collection) {
+            return collection.sort(function (item1, item2) {
+                return order === SORTING_ORDER.asc ? item1[property] > item2[property]
+                    : item1[property] < item2[property];
             });
         }
     };
@@ -156,14 +191,14 @@ exports.sortBy = function (property, order) {
 exports.format = function (property, formatter) {
     return {
         priority: OPERATORS_PRIORITIES.format,
-        operator: function (friends) {
-            friends.forEach(function (friend) {
-                if (friend[property] !== undefined) {
-                    friend[property] = formatter(friend[property]);
+        operator: function (collection) {
+            collection.forEach(function (item) {
+                if (item[property] !== undefined) {
+                    item[property] = formatter(item[property]);
                 }
             });
 
-            return friends;
+            return collection;
         }
     };
 };
@@ -176,8 +211,8 @@ exports.format = function (property, formatter) {
 exports.limit = function (count) {
     return {
         priority: OPERATORS_PRIORITIES.limit,
-        operator: function (friends) {
-            return friends.slice(0, count);
+        operator: function (collection) {
+            return collection.slice(0, count);
         }
     };
 };
@@ -195,13 +230,13 @@ if (exports.isStar) {
 
         return {
             priority: OPERATORS_PRIORITIES.or,
-            operator: function (friends) {
-                var filteredFriends = filters.reduce(function (filtered, filter) {
-                    return filtered.concat(filter(friends));
+            operator: function (collection) {
+                var filteredCollection = filters.reduce(function (filtered, filter) {
+                    return filtered.concat(filter(collection));
                 }, []);
 
-                return friends.filter(function (friend) {
-                    return filteredFriends.indexOf(friend) !== -1;
+                return collection.filter(function (item) {
+                    return filteredCollection.indexOf(item) !== -1;
                 });
             }
         };
@@ -218,10 +253,10 @@ if (exports.isStar) {
 
         return {
             priority: OPERATORS_PRIORITIES.and,
-            operator: function (friends) {
-                return filters.reduce(function (filteredFriends, filter) {
-                    return filter(filteredFriends);
-                }, friends);
+            operator: function (collection) {
+                return filters.reduce(function (filteredCollection, filter) {
+                    return filter(filteredCollection);
+                }, collection);
             }
         };
     };
