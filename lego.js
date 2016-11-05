@@ -19,7 +19,6 @@ var SORTING_ORDER = {
     asc: 'asc',
     desc: 'desc'
 };
-var uniqueCollectionKeys;
 
 /**
  * Запрос к коллекции
@@ -28,9 +27,7 @@ var uniqueCollectionKeys;
  * @returns {Array}
  */
 exports.query = function (collection) {
-    var queryResult = [];
-    uniqueCollectionKeys = getAllUniqueKeys(collection);
-    queryResult = clone(collection);
+    var queryResult = clone(collection);
 
     var levelsExecutionQueue = createExecutionQueue(
         [].slice.call(arguments, 1)
@@ -46,47 +43,18 @@ exports.query = function (collection) {
 };
 
 /**
- * Берёт все уникальные ключи из коллекции объектов
- * @param {Array.<Object>} collection
- * @returns {Array} - уникальные значения
- */
-function getAllUniqueKeys(collection) {
-    return collection.reduce(function (keys, item) {
-        return keys.concat(Object.keys(item).filter(function (key) {
-            return keys.indexOf(key) === -1;
-        }));
-    }, []);
-}
-
-/**
  * @param {Array} collection - array of objects
- * @param {Array} [properties] - корректные поля, которые нужно копировать
  * @returns {Array} - глубокая копия collection
  */
-function clone(collection, properties) {
-    var getSharedProperties = properties !== undefined
-        ? getIntersectionFunction(properties)
-        : Object.keys;
+function clone(collection) {
 
     return collection.reduce(function (copiedCollection, item) {
-        return copiedCollection.concat(getSharedProperties(item).reduce(function (copiedItem, key) {
+        return copiedCollection.concat(Object.keys(item).reduce(function (copiedItem, key) {
             copiedItem[key] = item[key];
 
             return copiedItem;
         }, {}));
     }, []);
-}
-
-/**
- * @param {Array} collection
- * @returns {Function} - функция для получения полей объекта, присутствующие в collection
- */
-function getIntersectionFunction(collection) {
-    return function (object) {
-        return Object.keys(object).filter(function (property) {
-            return collection.indexOf(property) !== -1;
-        });
-    };
 }
 
 /**
@@ -113,10 +81,12 @@ function createExecutionQueue(functions) {
  * @returns {Array} - уникальные значения
  */
 function getAllUniqueValues(object) {
-    return Object.keys(object).reduce(function (uniqueValues, key, index) {
-        return uniqueValues.concat(
-            uniqueValues.indexOf(object[key]) !== index ? object[key] : []
-        );
+    return Object.keys(object).reduce(function (uniqueValues, key) {
+        if (uniqueValues.indexOf(object[key]) === -1) {
+            uniqueValues.push(object[key]);
+        }
+
+        return uniqueValues;
     }, []);
 }
 
@@ -131,21 +101,18 @@ exports.select = function () {
     return {
         priority: OPERATORS_PRIORITIES.select,
         operator: function (collection) {
-            return clone(collection, getCorrectProperties(selectors));
+            return collection.reduce(function (copiedCollection, item) {
+                return copiedCollection.concat(selectors.reduce(function (copiedItem, key) {
+                    if (item.hasOwnProperty(key)) {
+                        copiedItem[key] = item[key];
+                    }
+
+                    return copiedItem;
+                }, {}));
+            }, []);
         }
     };
 };
-
-/**
- * Оставить только существующие в коллекции поля
- * @param {Array} properties
- * @returns {Array}
- */
-function getCorrectProperties(properties) {
-    return properties.filter(function (property) {
-        return uniqueCollectionKeys.indexOf(property) !== -1;
-    });
-}
 
 /**
  * Фильтрация поля по массиву значений
@@ -193,7 +160,7 @@ exports.format = function (property, formatter) {
         priority: OPERATORS_PRIORITIES.format,
         operator: function (collection) {
             collection.forEach(function (item) {
-                if (item[property] !== undefined) {
+                if (item.hasOwnProperty(property)) {
                     item[property] = formatter(item[property]);
                 }
             });
@@ -212,7 +179,7 @@ exports.limit = function (count) {
     return {
         priority: OPERATORS_PRIORITIES.limit,
         operator: function (collection) {
-            return collection.slice(0, count);
+            return collection.slice(0, count > 0 ? count : 0);
         }
     };
 };
